@@ -283,8 +283,7 @@ class TestCheckoutServiceWithSpy(unittest.TestCase):
         
         self.tx.amount = 500.00
 
-        with patch.object(real_calc, "net_amount",
-                        wraps=real_calc.net_amount) as spy_net:
+        with patch.object(real_calc, "net_amount", wraps=real_calc.net_amount) as spy_net:
             receipt = svc.checkout(self.tx)
 
         spy_net.assert_called_once_with(500.00, "USD")
@@ -304,6 +303,20 @@ class TestCheckoutServiceWithSpy(unittest.TestCase):
 
         self.assertEqual(receipt["fee"], 5.00)
         self.assertEqual(receipt["net"], 95.00)
+        self.assertEqual(receipt["status"], "success")
+        mock_calc.processing_fee.assert_called_once()
+
 if __name__ == "__main__":
     unittest.main()
 
+# Question A: 
+# This could work but it would technically not be ideal. You are trying to test hard coded values in order to test dependencies that rely on it
+
+# Question B:
+# Spec restricts the MagicMocks access to other objects that aren't specified in this argument. This would case an AttributeError when you try to do it anyways.
+
+#Question C:
+# You would be forced to replace in production code if you wanted to temporarily replace an object in mock for testing
+
+#Question D:
+# # You should not use a spy instead of a mock because it can be unsafe to do so as it uses things like network calls. You don't want to run actual transaction commands that deal with real money. 
