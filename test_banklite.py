@@ -279,10 +279,8 @@ class TestCheckoutServiceWithSpy(unittest.TestCase):
     def test_partial_spy_on_net_amount_only(self):
         real_calc = FeeCalculator()
         
-        # Use the gateway from setUp
         svc = CheckoutService(real_calc, self.gateway)
         
-        # Override the default tx amount for this specific test
         self.tx.amount = 500.00
 
         with patch.object(real_calc, "net_amount",
