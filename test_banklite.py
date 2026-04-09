@@ -1,9 +1,21 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Assuming these are imported from your actual implementation:
-from banklite import PaymentProcessor, FraudAwareProcessor, FraudCheckResult
-
+from banklite import (
+    Transaction,         
+    FraudCheckResult,    
+    PaymentGateway,    
+    FraudDetector,      
+    EmailClient,         
+    AuditLog,           
+    TransactionRepository, 
+    PaymentProcessor,    
+    FraudAwareProcessor, 
+    StatementBuilder,    
+    FeeCalculator,
+    CheckoutService,
+)
 class TestPaymentProcessor(unittest.TestCase):
     def setUp(self):
         self.gateway = MagicMock()
@@ -79,7 +91,6 @@ class TestPaymentProcessor(unittest.TestCase):
         self.audit.record.assert_called_once_with(
             "DECLINED", self.tx.tx_id, {"amount": self.tx.amount}
         )
-
 
 class TestFraudAwareProcessor(unittest.TestCase):
     def setUp(self):
@@ -210,6 +221,91 @@ class TestStatementBuilder(unittest.TestCase):
         
         self.assertIs(result["transactions"], txs)
 
+
+class TestCheckoutServiceWithSpy(unittest.TestCase):
+    def setUp(self):
+        self.real_calc = FeeCalculator()
+        self.spy_calc = MagicMock(wraps=self.real_calc)
+        
+        self.gateway = MagicMock()
+        self.gateway.charge.return_value = True
+        
+        self.svc = CheckoutService(self.spy_calc, self.gateway)
+
+        self.tx = MagicMock()
+        self.tx.tx_id = "tx_spy_123"
+        self.tx.amount = 100.00
+        self.tx.currency = "USD"
+
+    def test_usd_processing_fee_is_correct(self):
+        receipt = self.svc.checkout(self.tx)
+        
+        self.assertEqual(receipt["fee"], 3.20)
+
+    def test_international_fee_includes_surcharge(self):
+        self.tx.amount = 200.00
+        self.tx.currency = "EUR"
+        
+        receipt = self.svc.checkout(self.tx)
+        
+        self.assertEqual(receipt["fee"], 9.10)
+
+    def test_net_amount_is_amount_minus_fee(self):
+        receipt = self.svc.checkout(self.tx)
+        
+        self.assertEqual(receipt["net"], 96.80)
+
+    def test_processing_fee_called_with_correct_amount_and_currency(self):
+        self.svc.checkout(self.tx)
+        
+        self.spy_calc.processing_fee.assert_called_with(100.00, "USD")
+
+    def test_net_amount_called_with_correct_amount_and_currency(self):
+        self.svc.checkout(self.tx)
+        
+        self.spy_calc.net_amount.assert_called_with(100.00, "USD")
+
+    def test_each_fee_method_called_exactly_once_per_checkout(self):
+        self.svc.checkout(self.tx)
+        
+        self.assertEqual(self.spy_calc.processing_fee.call_count, 1)
+        self.assertEqual(self.spy_calc.net_amount.call_count, 1)
+
+    def test_spy_return_matches_fee_in_receipt(self):
+        receipt = self.svc.checkout(self.tx)
+        
+        self.assertEqual(receipt["fee"], 3.20)
+
+    def test_partial_spy_on_net_amount_only(self):
+        real_calc = FeeCalculator()
+        
+        # Use the gateway from setUp
+        svc = CheckoutService(real_calc, self.gateway)
+        
+        # Override the default tx amount for this specific test
+        self.tx.amount = 500.00
+
+        with patch.object(real_calc, "net_amount",
+                        wraps=real_calc.net_amount) as spy_net:
+            receipt = svc.checkout(self.tx)
+
+        spy_net.assert_called_once_with(500.00, "USD")
+
+        self.assertEqual(receipt["net"], 485.20)
+
+    def test_contrast_mock_only_tests_wiring_not_formula(self):
+        mock_calc = MagicMock()
+        mock_calc.processing_fee.return_value = 5.00  
+        mock_calc.net_amount.return_value = 95.00     
+
+        gateway = MagicMock()
+        gateway.charge.return_value = True
+
+        svc = CheckoutService(mock_calc, gateway)
+        receipt = svc.checkout(self.tx)
+
+        self.assertEqual(receipt["fee"], 5.00)
+        self.assertEqual(receipt["net"], 95.00)
 if __name__ == "__main__":
     unittest.main()
 

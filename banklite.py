@@ -152,3 +152,47 @@ class StatementBuilder:
             "total_charged": round(total, 2),
             "count":         len(txs),
         }
+
+# ── Task 4: FeeCalculator + CheckoutService ──────────────────
+class FeeCalculator:
+    """Pure fee logic. No I/O. Safe to call in tests."""
+
+    BASE_FEE_RATE   = 0.029   # 2.9%
+    FIXED_FEE       = 0.30    # $0.30 per transaction
+    INTL_SURCHARGE  = 0.015   # extra 1.5% for non-USD
+
+    def processing_fee(self, amount: float, currency: str = "USD") -> float:
+        """Returns the total processing fee for a transaction."""
+        rate = self.BASE_FEE_RATE
+        if currency != "USD":
+            rate += self.INTL_SURCHARGE
+        return round(amount * rate + self.FIXED_FEE, 2)
+
+    def net_amount(self, amount: float, currency: str = "USD") -> float:
+        """Returns the amount after fees are deducted."""
+        fee = self.processing_fee(amount, currency)
+        return round(amount - fee, 2)
+
+
+class CheckoutService:
+    """Orchestrates checkout: computes fees and builds a receipt."""
+
+    def __init__(self, fee_calc: FeeCalculator, gateway: PaymentGateway):
+        self._fee_calc = fee_calc
+        self._gateway  = gateway
+
+    def checkout(self, tx: Transaction) -> dict:
+        """
+        Computes the processing fee, charges the gateway, and
+        returns a receipt dict with: amount, fee, net, status.
+        """
+        fee    = self._fee_calc.processing_fee(tx.amount, tx.currency)
+        net    = self._fee_calc.net_amount(tx.amount, tx.currency)
+        status = "success" if self._gateway.charge(tx) else "declined"
+        return {
+            "tx_id":  tx.tx_id,
+            "amount": tx.amount,
+            "fee":    fee,
+            "net":    net,
+            "status": status,
+        }
